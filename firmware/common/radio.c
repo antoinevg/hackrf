@@ -28,7 +28,8 @@
 #include "fixed_point.h"
 #include "hackrf_core.h"
 #include "mixer.h"
-#include "max283x.h"
+#include "trait_max283x.h"
+#include "platform_board.h"
 #include "platform_detect.h"
 #include "rf_path.h"
 #include "transceiver_mode.h"
@@ -390,7 +391,10 @@ static uint32_t radio_update_frequency(radio_t* const radio, uint64_t* bank)
 		}
 	}
 	if (requested_if != RADIO_UNSET) {
-		freq_if = max283x_set_frequency(&max283x, requested_if, false);
+		freq_if = trait_max283x_set_frequency(
+			platform_board()->dyn_max283x,
+			requested_if,
+			false);
 	}
 	if (requested_lo != RADIO_UNSET) {
 		freq_lo = mixer_set_frequency(&mixer, freq_lo, false);
@@ -497,7 +501,10 @@ static uint32_t radio_update_frequency(radio_t* const radio, uint64_t* bank)
 
 	/* Apply settings. */
 	if ((freq_if != applied_if) && (freq_if != RADIO_UNSET)) {
-		freq_if = max283x_set_frequency(&max283x, freq_if, true);
+		freq_if = trait_max283x_set_frequency(
+			platform_board()->dyn_max283x,
+			freq_if,
+			true);
 		radio->config[RADIO_BANK_APPLIED][RADIO_FREQUENCY_IF] = freq_if;
 		changed |= (1 << RADIO_FREQUENCY_IF);
 	}
@@ -581,6 +588,8 @@ static uint32_t radio_update_bandwidth(radio_t* const radio, uint64_t* bank)
 		opmode = radio->config[RADIO_BANK_APPLIED][RADIO_OPMODE];
 	}
 
+	const platform_board_t* board = platform_board();
+
 #ifdef IS_PRALINE
 	if (IS_PRALINE) {
 		/* Praline legacy mode always sets baseband bandwidth automatically. */
@@ -589,8 +598,8 @@ static uint32_t radio_update_bandwidth(radio_t* const radio, uint64_t* bank)
 
 		if (radio->config[RADIO_BANK_APPLIED][RADIO_XCVR_TX_LPF] !=
 		    lpf_bandwidth) {
-			max283x_set_lpf_bandwidth(
-				&max283x,
+			trait_max283x_set_lpf_bandwidth(
+				board->dyn_max283x,
 				MAX283x_MODE_TX,
 				lpf_bandwidth);
 			radio->config[RADIO_BANK_APPLIED][RADIO_XCVR_TX_LPF] =
@@ -599,8 +608,8 @@ static uint32_t radio_update_bandwidth(radio_t* const radio, uint64_t* bank)
 		}
 		if (radio->config[RADIO_BANK_APPLIED][RADIO_XCVR_RX_LPF] !=
 		    lpf_bandwidth) {
-			max283x_set_lpf_bandwidth(
-				&max283x,
+			trait_max283x_set_lpf_bandwidth(
+				board->dyn_max283x,
 				MAX283x_MODE_RX,
 				lpf_bandwidth);
 			radio->config[RADIO_BANK_APPLIED][RADIO_XCVR_RX_LPF] =
@@ -623,7 +632,9 @@ static uint32_t radio_update_bandwidth(radio_t* const radio, uint64_t* bank)
 		const max283x_rx_hpf_freq_t hpf_bandwidth = MAX283x_RX_HPF_30_KHZ;
 		if (radio->config[RADIO_BANK_APPLIED][RADIO_XCVR_RX_HPF] !=
 		    hpf_bandwidth) {
-			max283x_set_rx_hpf_frequency(&max283x, hpf_bandwidth);
+			trait_max283x_set_rx_hpf_frequency(
+				board->dyn_max283x,
+				hpf_bandwidth);
 			radio->config[RADIO_BANK_APPLIED][RADIO_XCVR_RX_HPF] =
 				hpf_bandwidth;
 			changed |= (1 << RADIO_XCVR_RX_HPF);
@@ -653,8 +664,8 @@ static uint32_t radio_update_bandwidth(radio_t* const radio, uint64_t* bank)
 
 		if (radio->config[RADIO_BANK_APPLIED][RADIO_XCVR_TX_LPF] !=
 		    lpf_bandwidth) {
-			max283x_set_lpf_bandwidth(
-				&max283x,
+			trait_max283x_set_lpf_bandwidth(
+				board->dyn_max283x,
 				MAX283x_MODE_TX,
 				lpf_bandwidth);
 			radio->config[RADIO_BANK_APPLIED][RADIO_BB_BANDWIDTH_RX] =
@@ -687,6 +698,8 @@ static uint32_t radio_update_gain(radio_t* const radio, uint64_t* bank)
 	if (opmode == RADIO_UNSET) {
 		opmode = radio->config[RADIO_BANK_APPLIED][RADIO_OPMODE];
 	}
+
+	const platform_board_t* board = platform_board();
 
 	/*
 	 * Because control signals are shared by the two RF amps, the setting
@@ -729,11 +742,11 @@ static uint32_t radio_update_gain(radio_t* const radio, uint64_t* bank)
 	gain = bank[RADIO_GAIN_TX_IF];
 	if ((gain != RADIO_UNSET) &&
 	    (gain != radio->config[RADIO_BANK_APPLIED][RADIO_GAIN_TX_IF])) {
-		max283x_set_txvga_gain(&max283x, gain);
+		trait_max283x_set_txvga_gain(board->dyn_max283x, gain);
 		radio->config[RADIO_BANK_APPLIED][RADIO_GAIN_TX_IF] = gain;
 		changed |= (1 << RADIO_GAIN_TX_IF);
 	} else if (radio->config[RADIO_BANK_APPLIED][RADIO_GAIN_TX_IF] == RADIO_UNSET) {
-		max283x_set_txvga_gain(&max283x, DEFAULT_GAIN_IF);
+		trait_max283x_set_txvga_gain(board->dyn_max283x, DEFAULT_GAIN_IF);
 		radio->config[RADIO_BANK_APPLIED][RADIO_GAIN_TX_IF] = DEFAULT_GAIN_IF;
 		changed |= (1 << RADIO_GAIN_TX_IF);
 	}
@@ -741,11 +754,11 @@ static uint32_t radio_update_gain(radio_t* const radio, uint64_t* bank)
 	gain = bank[RADIO_GAIN_RX_IF];
 	if ((gain != RADIO_UNSET) &&
 	    (gain != radio->config[RADIO_BANK_APPLIED][RADIO_GAIN_RX_IF])) {
-		max283x_set_lna_gain(&max283x, gain);
+		trait_max283x_set_lna_gain(board->dyn_max283x, gain);
 		radio->config[RADIO_BANK_APPLIED][RADIO_GAIN_RX_IF] = gain;
 		changed |= (1 << RADIO_GAIN_RX_IF);
 	} else if (radio->config[RADIO_BANK_APPLIED][RADIO_GAIN_RX_IF] == RADIO_UNSET) {
-		max283x_set_lna_gain(&max283x, DEFAULT_GAIN_IF);
+		trait_max283x_set_lna_gain(board->dyn_max283x, DEFAULT_GAIN_IF);
 		radio->config[RADIO_BANK_APPLIED][RADIO_GAIN_RX_IF] = DEFAULT_GAIN_IF;
 		changed |= (1 << RADIO_GAIN_RX_IF);
 	}
@@ -753,11 +766,11 @@ static uint32_t radio_update_gain(radio_t* const radio, uint64_t* bank)
 	gain = bank[RADIO_GAIN_RX_BB];
 	if ((gain != RADIO_UNSET) &&
 	    (gain != radio->config[RADIO_BANK_APPLIED][RADIO_GAIN_RX_BB])) {
-		max283x_set_vga_gain(&max283x, gain);
+		trait_max283x_set_vga_gain(board->dyn_max283x, gain);
 		radio->config[RADIO_BANK_APPLIED][RADIO_GAIN_RX_BB] = gain;
 		changed |= (1 << RADIO_GAIN_RX_BB);
 	} else if (radio->config[RADIO_BANK_APPLIED][RADIO_GAIN_RX_BB] == RADIO_UNSET) {
-		max283x_set_vga_gain(&max283x, DEFAULT_GAIN_BB);
+		trait_max283x_set_vga_gain(board->dyn_max283x, DEFAULT_GAIN_BB);
 		radio->config[RADIO_BANK_APPLIED][RADIO_GAIN_RX_BB] = DEFAULT_GAIN_BB;
 		changed |= (1 << RADIO_GAIN_RX_BB);
 	}

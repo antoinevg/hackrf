@@ -23,12 +23,11 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <stdint.h>
 
-#include "fixed_point.h"
 #include "gpio.h"
 #include "spi_bus.h"
+#include "trait_max283x.h"
 
 /* 32 registers, each containing 10 bits of data. */
 #define MAX2837_NUM_REGS            32
@@ -42,6 +41,8 @@ typedef enum {
 } max2837_mode_t;
 
 typedef struct _max2837_driver_t {
+	trait_max283x_t trait;
+
 	spi_bus_t* bus;
 	gpio_t gpio_enable;
 	gpio_t gpio_rx_enable;
@@ -55,40 +56,4 @@ typedef struct _max2837_driver_t {
 	uint32_t regs_dirty;
 } max2837_driver_t;
 
-/* Initialize chip. */
-extern void max2837_setup(max2837_driver_t* const drv);
-
-/* Read a register via SPI. Save a copy to memory and return
- * value. Mark clean. */
-extern uint16_t max2837_reg_read(max2837_driver_t* const drv, uint8_t r);
-
-/* Write value to register via SPI and save a copy to memory. Mark
- * clean. */
-extern void max2837_reg_write(max2837_driver_t* const drv, uint8_t r, uint16_t v);
-
-/* Write all dirty registers via SPI from memory. Mark all clean. Some
- * operations require registers to be written in a certain order. Use
- * provided routines for those operations. */
-extern void max2837_regs_commit(max2837_driver_t* const drv);
-
-max2837_mode_t max2837_mode(max2837_driver_t* const drv);
-void max2837_set_mode(max2837_driver_t* const drv, const max2837_mode_t new_mode);
-
-/* Turn on/off all chip functions. Does not control oscillator and CLKOUT */
-extern void max2837_start(max2837_driver_t* const drv);
-extern void max2837_stop(max2837_driver_t* const drv);
-
-/* Set frequency in 1/(2**24) Hz. */
-extern fp_40_24_t max2837_set_frequency(
-	max2837_driver_t* const drv,
-	fp_40_24_t freq,
-	bool program);
-uint32_t max2837_set_lpf_bandwidth(
-	max2837_driver_t* const drv,
-	const uint32_t bandwidth_hz);
-bool max2837_set_lna_gain(max2837_driver_t* const drv, const uint32_t gain_db);
-bool max2837_set_vga_gain(max2837_driver_t* const drv, const uint32_t gain_db);
-bool max2837_set_txvga_gain(max2837_driver_t* const drv, const uint32_t gain_db);
-
-extern void max2837_tx(max2837_driver_t* const drv);
-extern void max2837_rx(max2837_driver_t* const drv);
+trait_max283x_t* max2837_driver_new(max2837_driver_t* const self);

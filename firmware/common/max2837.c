@@ -34,9 +34,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
 #include "fixed_point.h"
 #include "max2837_regs.def" // private register def macros
 #include "selftest.h"
+#include "trait_max283x.h"
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
@@ -83,19 +85,36 @@ static const uint16_t max2837_regs_default[MAX2837_NUM_REGS] = {
 
 static const uint8_t max2837_regs_skip_verify[] = {1, 25, 27, 30, 31};
 
-static uint16_t max2837_read(max2837_driver_t* const drv, uint8_t r);
+/* Forward declarations. */
+static void max2837_reg_write(trait_max283x_t* const trait, uint8_t r, uint16_t v);
+static void max2837_regs_commit(trait_max283x_t* const trait);
+static void max2837_set_mode(trait_max283x_t* const trait, const max283x_mode_t new_mode);
+
+/* impl max2837_driver_t { ... */
+
+static uint16_t max2837_read(max2837_driver_t* const self, uint8_t r)
+{
+	uint16_t value = (1 << 15) | (r << 10);
+	spi_bus_transfer(self->bus, &value, 1);
+	return value & 0x3ff;
+}
 
 /* Set up all registers according to defaults specified in docs. */
-static void max2837_init(max2837_driver_t* const drv)
+static inline void max2837_reg_commit(max2837_driver_t* const self, uint8_t r)
 {
-	drv->target_init(drv);
-	max2837_set_mode(drv, MAX2837_MODE_SHUTDOWN);
+	max2837_reg_write(&self->trait, r, self->regs[r]);
+}
 
-	memcpy(drv->regs, max2837_regs_default, sizeof(drv->regs));
-	drv->regs_dirty = 0xffffffff;
+static void max2837_init(max2837_driver_t* const self)
+{
+	self->target_init(self);
+	max2837_set_mode(&self->trait, (max283x_mode_t) MAX2837_MODE_SHUTDOWN);
+
+	memcpy(self->regs, max2837_regs_default, sizeof(self->regs));
+	self->regs_dirty = 0xffffffff;
 
 	/* Write default register values to chip. */
-	max2837_regs_commit(drv);
+	max2837_regs_commit(&self->trait);
 
 	/* Read back registers to verify. */
 	selftest.max283x_readback_total_registers = MAX2837_NUM_REGS;
@@ -105,10 +124,10 @@ static void max2837_init(max2837_driver_t* const drv)
 				goto next;
 			}
 		}
-		uint16_t value = max2837_read(drv, r);
-		if (value != drv->regs[r]) {
+		uint16_t value = max2837_read(self, r);
+		if (value != self->regs[r]) {
 			selftest.max283x_readback_bad_value = value;
-			selftest.max283x_readback_expected_value = drv->regs[r];
+			selftest.max283x_readback_expected_value = self->regs[r];
 			break;
 		}
 next:
@@ -120,118 +139,142 @@ next:
 	}
 }
 
+/* impl trait_max283x_t for max2837_driver_t { ... */
+
 /*
  * Set up pins for GPIO and SPI control, configure SSP peripheral for SPI, and
  * set our own default register configuration.
  */
-void max2837_setup(max2837_driver_t* const drv)
+static void max2837_setup(trait_max283x_t* const trait)
 {
-	max2837_init(drv);
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
+	max2837_init(self);
 
 	/* Use SPI control instead of B1-B7 pins for gain settings. */
-	set_MAX2837_TXVGA_GAIN_SPI_EN(drv, 1);
-	set_MAX2837_TXVGA_GAIN_MSB_SPI_EN(drv, 1);
+	set_MAX2837_TXVGA_GAIN_SPI_EN(self, 1);
+	set_MAX2837_TXVGA_GAIN_MSB_SPI_EN(self, 1);
 	//set_MAX2837_TXVGA_GAIN(0x3f); /* maximum attenuation */
-	set_MAX2837_TXVGA_GAIN(drv, 0x00); /* minimum attenuation */
-	set_MAX2837_VGAMUX_enable(drv, 1);
-	set_MAX2837_VGA_EN(drv, 1);
-	set_MAX2837_HPC_RXGAIN_EN(drv, 0);
-	set_MAX2837_HPC_STOP(drv, MAX2837_STOP_1K);
-	set_MAX2837_LNAgain_SPI_EN(drv, 1);
-	set_MAX2837_LNAgain(drv, MAX2837_LNAgain_MAX); /* maximum gain */
-	set_MAX2837_VGAgain_SPI_EN(drv, 1);
-	set_MAX2837_VGA(drv, 0x18); /* reasonable gain for noisy 2.4GHz environment */
+	set_MAX2837_TXVGA_GAIN(self, 0x00); /* minimum attenuation */
+	set_MAX2837_VGAMUX_enable(self, 1);
+	set_MAX2837_VGA_EN(self, 1);
+	set_MAX2837_HPC_RXGAIN_EN(self, 0);
+	set_MAX2837_HPC_STOP(self, MAX2837_STOP_1K);
+	set_MAX2837_LNAgain_SPI_EN(self, 1);
+	set_MAX2837_LNAgain(self, MAX2837_LNAgain_MAX); /* maximum gain */
+	set_MAX2837_VGAgain_SPI_EN(self, 1);
+	set_MAX2837_VGA(self, 0x18); /* reasonable gain for noisy 2.4GHz environment */
 
 	/* maximum rx output common-mode voltage */
-	set_MAX2837_BUFF_VCM(drv, MAX2837_BUFF_VCM_1_25);
+	set_MAX2837_BUFF_VCM(self, MAX2837_BUFF_VCM_1_25);
 
 	/* configure baseband filter for 8 MHz TX */
-	set_MAX2837_LPF_EN(drv, 1);
-	set_MAX2837_ModeCtrl(drv, MAX2837_ModeCtrl_RxLPF);
-	set_MAX2837_FT(drv, MAX2837_FT_5M);
+	set_MAX2837_LPF_EN(self, 1);
+	set_MAX2837_ModeCtrl(self, MAX2837_ModeCtrl_RxLPF);
+	set_MAX2837_FT(self, MAX2837_FT_5M);
 
-	max2837_regs_commit(drv);
+	max2837_regs_commit(trait);
 }
 
-static uint16_t max2837_read(max2837_driver_t* const drv, uint8_t r)
+static uint16_t max2837_num_regs(trait_max283x_t* const trait)
 {
-	uint16_t value = (1 << 15) | (r << 10);
-	spi_bus_transfer(drv->bus, &value, 1);
-	return value & 0x3ff;
+	(void) trait;
+	return MAX2837_NUM_REGS;
 }
 
-static void max2837_write(max2837_driver_t* const drv, uint8_t r, uint16_t v)
+static uint16_t max2837_data_regs_max_value(trait_max283x_t* const trait)
 {
+	(void) trait;
+	return MAX2837_DATA_REGS_MAX_VALUE;
+}
+
+static void max2837_write(trait_max283x_t* const trait, uint8_t r, uint16_t v)
+{
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
 	uint16_t value = (r << 10) | (v & 0x3ff);
-	spi_bus_transfer(drv->bus, &value, 1);
+	spi_bus_transfer(self->bus, &value, 1);
 }
 
-uint16_t max2837_reg_read(max2837_driver_t* const drv, uint8_t r)
+static uint16_t max2837_reg_read(trait_max283x_t* const trait, uint8_t r)
 {
-	if ((drv->regs_dirty >> r) & 0x1) {
-		drv->regs[r] = max2837_read(drv, r);
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
+	if ((self->regs_dirty >> r) & 0x1) {
+		self->regs[r] = max2837_read(self, r);
 	};
-	return drv->regs[r];
+	return self->regs[r];
 }
 
-void max2837_reg_write(max2837_driver_t* const drv, uint8_t r, uint16_t v)
+static void max2837_reg_write(trait_max283x_t* const trait, uint8_t r, uint16_t v)
 {
-	drv->regs[r] = v;
-	max2837_write(drv, r, v);
-	MAX2837_REG_SET_CLEAN(drv, r);
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
+	self->regs[r] = v;
+	max2837_write(trait, r, v);
+	MAX2837_REG_SET_CLEAN(self, r);
 }
 
-static inline void max2837_reg_commit(max2837_driver_t* const drv, uint8_t r)
+static void max2837_regs_commit(trait_max283x_t* const trait)
 {
-	max2837_reg_write(drv, r, drv->regs[r]);
-}
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
 
-void max2837_regs_commit(max2837_driver_t* const drv)
-{
 	int r;
 	for (r = 0; r < MAX2837_NUM_REGS; r++) {
-		if ((drv->regs_dirty >> r) & 0x1) {
-			max2837_reg_commit(drv, r);
+		if ((self->regs_dirty >> r) & 0x1) {
+			max2837_reg_commit(self, r);
 		}
 	}
 }
 
-void max2837_set_mode(max2837_driver_t* const drv, const max2837_mode_t new_mode)
+static void max2837_set_mode(trait_max283x_t* const trait, const max283x_mode_t new_mode)
 {
-	drv->set_mode(drv, new_mode);
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
+	self->set_mode(self, (max2837_mode_t) new_mode);
 }
 
-max2837_mode_t max2837_mode(max2837_driver_t* const drv)
+static max283x_mode_t max2837_mode(trait_max283x_t* const trait)
 {
-	return drv->mode;
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
+	return (max283x_mode_t) self->mode;
 }
 
-void max2837_start(max2837_driver_t* const drv)
+static void max2837_start(trait_max283x_t* const trait)
 {
-	set_MAX2837_EN_SPI(drv, 1);
-	max2837_regs_commit(drv);
-	max2837_set_mode(drv, MAX2837_MODE_STANDBY);
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
+	set_MAX2837_EN_SPI(self, 1);
+	max2837_regs_commit(trait);
+	max2837_set_mode(trait, (max283x_mode_t) MAX2837_MODE_STANDBY);
 }
 
-void max2837_tx(max2837_driver_t* const drv)
+static void max2837_tx(trait_max283x_t* const trait)
 {
-	set_MAX2837_ModeCtrl(drv, MAX2837_ModeCtrl_TxLPF);
-	max2837_regs_commit(drv);
-	max2837_set_mode(drv, MAX2837_MODE_TX);
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
+	set_MAX2837_ModeCtrl(self, MAX2837_ModeCtrl_TxLPF);
+	max2837_regs_commit(trait);
+	max2837_set_mode(trait, (max283x_mode_t) MAX2837_MODE_TX);
 }
 
-void max2837_rx(max2837_driver_t* const drv)
+static void max2837_rx(trait_max283x_t* const trait)
 {
-	set_MAX2837_ModeCtrl(drv, MAX2837_ModeCtrl_RxLPF);
-	max2837_regs_commit(drv);
-	max2837_set_mode(drv, MAX2837_MODE_RX);
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
+	set_MAX2837_ModeCtrl(self, MAX2837_ModeCtrl_RxLPF);
+	max2837_regs_commit(trait);
+	max2837_set_mode(trait, (max283x_mode_t) MAX2837_MODE_RX);
 }
 
-void max2837_stop(max2837_driver_t* const drv)
+static void max2837_stop(trait_max283x_t* const trait)
 {
-	set_MAX2837_EN_SPI(drv, 0);
-	max2837_regs_commit(drv);
-	max2837_set_mode(drv, MAX2837_MODE_SHUTDOWN);
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
+	set_MAX2837_EN_SPI(self, 0);
+	max2837_regs_commit(trait);
+	max2837_set_mode(trait, (max283x_mode_t) MAX2837_MODE_SHUTDOWN);
 }
 
 /* Assume 40 MHz reference clock with R divider of 1. */
@@ -240,11 +283,13 @@ void max2837_stop(max2837_driver_t* const drv)
 #define MIN_FREQ FP_MHZ(2000)
 #define MAX_FREQ FP_MHZ(3000)
 
-fp_40_24_t max2837_set_frequency(
-	max2837_driver_t* const drv,
+static fp_40_24_t max2837_set_frequency(
+	trait_max283x_t* const trait,
 	fp_40_24_t freq,
 	bool program)
 {
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
 	uint8_t band;
 	uint8_t lna_band;
 	uint64_t div;
@@ -280,18 +325,18 @@ fp_40_24_t max2837_set_frequency(
 
 	if (program) {
 		/* Band settings */
-		set_MAX2837_LOGEN_BSW(drv, band);
-		set_MAX2837_LNAband(drv, lna_band);
+		set_MAX2837_LOGEN_BSW(self, band);
+		set_MAX2837_LNAband(self, lna_band);
 
 		/*
 		 * Write order matters here, so commit INT and FRAC_HI before
 		 * committing FRAC_LO, which is the trigger for VCO auto-select.
 		 */
-		set_MAX2837_SYN_INT(drv, (div >> 20) & 0xff);
-		set_MAX2837_SYN_FRAC_HI(drv, (div >> 10) & 0x3ff);
-		max2837_regs_commit(drv);
-		set_MAX2837_SYN_FRAC_LO(drv, div & 0x3ff);
-		max2837_regs_commit(drv);
+		set_MAX2837_SYN_INT(self, (div >> 20) & 0xff);
+		set_MAX2837_SYN_FRAC_HI(self, (div >> 10) & 0x3ff);
+		max2837_regs_commit(trait);
+		set_MAX2837_SYN_FRAC_LO(self, div & 0x3ff);
+		max2837_regs_commit(trait);
 	}
 
 	return ((PFD_FREQ_HZ * 3) / 4) * (div << 4);
@@ -324,26 +369,34 @@ static const max2837_ft_t max2837_ft[] = {
 };
 //clang-format on
 
-uint32_t max2837_set_lpf_bandwidth(max2837_driver_t* const drv, const uint32_t bandwidth_hz) {
+static uint32_t max2837_set_lpf_bandwidth(trait_max283x_t* const trait, const max283x_mode_t mode, const uint32_t bandwidth_hz)
+{
+	(void) mode;
+
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
 	const max2837_ft_t* p = max2837_ft;
-	while( p->bandwidth_hz != 0 ) {
-		if( p->bandwidth_hz >= bandwidth_hz ) {
+	while (p->bandwidth_hz != 0) {
+		if (p->bandwidth_hz >= bandwidth_hz) {
 			break;
 		}
 		p++;
 	}
-	
-	if( p->bandwidth_hz != 0 ) {
-		set_MAX2837_FT(drv, p->ft);
-		max2837_regs_commit(drv);
+
+	if (p->bandwidth_hz != 0) {
+		set_MAX2837_FT(self, p->ft);
+		max2837_regs_commit(trait);
 	}
 
 	return p->bandwidth_hz;
 }
 
-bool max2837_set_lna_gain(max2837_driver_t* const drv, const uint32_t gain_db) {
+static bool max2837_set_lna_gain(trait_max283x_t* const trait, const uint32_t gain_db)
+{
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
 	uint16_t val;
-	switch(gain_db){
+	switch (gain_db) {
 		case 40:
 			val = MAX2837_LNAgain_MAX;
 			break;
@@ -365,31 +418,66 @@ bool max2837_set_lna_gain(max2837_driver_t* const drv, const uint32_t gain_db) {
 		default:
 			return false;
 	}
-	set_MAX2837_LNAgain(drv, val);
-	max2837_reg_commit(drv, 1);
+	set_MAX2837_LNAgain(self, val);
+	max2837_reg_commit(self, 1);
 	return true;
 }
 
-bool max2837_set_vga_gain(max2837_driver_t* const drv, const uint32_t gain_db) {
-	if( (gain_db & 0x1) || gain_db > 62) {/* 0b11111*2 */
+static bool max2837_set_vga_gain(trait_max283x_t* const trait, const uint32_t gain_db) {
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
+	if ((gain_db & 0x1) || gain_db > 62) { /* 0b11111*2 */
 		return false;
-}
-		
-	set_MAX2837_VGA(drv, 31-(gain_db >> 1) );
-	max2837_reg_commit(drv, 5);
+	}
+
+	set_MAX2837_VGA(self, 31-(gain_db >> 1) );
+	max2837_reg_commit(self, 5);
 	return true;
 }
 
-bool max2837_set_txvga_gain(max2837_driver_t* const drv, const uint32_t gain_db) {
-	uint16_t val=0;
-	if(gain_db <16){
-		val = 31-gain_db;
+static bool max2837_set_txvga_gain(trait_max283x_t* const trait, const uint32_t gain_db) {
+	max2837_driver_t* self = container_of(trait, max2837_driver_t, trait);
+
+	uint16_t val = 0;
+	if (gain_db < 16) {
+		val = 31 - gain_db;
 		val |= (1 << 5); // bit6: 16db
-	} else{
-		val = 31-(gain_db-16);
+	} else {
+		val = 31 - (gain_db - 16);
 	}
-	
-	set_MAX2837_TXVGA_GAIN(drv, val);
-	max2837_reg_commit(drv, 29);
+
+	set_MAX2837_TXVGA_GAIN(self, val);
+	max2837_reg_commit(self, 29);
 	return true;
+}
+
+static const vtable_max283x_t vtable_max2837 = {
+	.setup = max2837_setup,
+	.num_regs = max2837_num_regs,
+	.data_regs_max_value = max2837_data_regs_max_value,
+	.reg_read = max2837_reg_read,
+	.reg_write = max2837_reg_write,
+	.regs_commit = max2837_regs_commit,
+	.mode = max2837_mode,
+	.set_mode = max2837_set_mode,
+	.start = max2837_start,
+	.stop = max2837_stop,
+	.set_frequency = max2837_set_frequency,
+	.set_lpf_bandwidth = max2837_set_lpf_bandwidth,
+	.set_lna_gain = max2837_set_lna_gain,
+	.set_vga_gain = max2837_set_vga_gain,
+	.set_txvga_gain = max2837_set_txvga_gain,
+	.tx = max2837_tx,
+	.rx = max2837_rx,
+	.set_rx_hpf_frequency = NULL,
+	.tx_calibration = NULL,
+	.rx_calibration = NULL,
+};
+
+trait_max283x_t* max2837_driver_new(max2837_driver_t* const self)
+{
+	*self = (max2837_driver_t) {
+		.trait = { .vtable = &vtable_max2837 },
+	};
+	return &self->trait;
 }

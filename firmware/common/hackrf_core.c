@@ -37,7 +37,6 @@
 #include "hackrf_core.h"
 #include "hackrf_ui.h"
 #include "i2c_lpc.h"
-#include "max283x.h"
 #include "max5864_target.h"
 #include "platform_gpio.h"
 #include "platform_scu.h"
@@ -90,8 +89,6 @@ static ssp_config_t ssp_config_max283x = {
 	.serial_clock_rate = 21,
 	.clock_prescale_rate = 2,
 };
-
-max283x_driver_t max283x = {};
 
 static ssp_config_t ssp_config_max5864 = {
 	/* FIXME speed up once everything is working reliably */

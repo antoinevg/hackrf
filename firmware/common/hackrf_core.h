@@ -33,7 +33,6 @@ extern "C" {
 #include "cpld_jtag.h"
 #include "fixed_point.h"
 #include "i2c_bus.h"
-#include "max283x.h"
 #include "max5864.h"
 #include "mixer.h"
 #include "platform_detect.h" // IWYU pragma: keep
@@ -52,12 +51,10 @@ extern "C" {
 extern si5351c_driver_t clock_gen;
 extern ssp_config_t ssp_config_w25q80bv;
 
-extern max283x_driver_t max283x;
 #ifdef IS_PRALINE
 extern ice40_spi_driver_t ice40;
 extern fpga_driver_t fpga;
 #endif
-extern max283x_driver_t max283x;
 extern max5864_driver_t max5864;
 extern mixer_driver_t mixer;
 extern w25q80bv_driver_t spi_flash;

@@ -21,12 +21,11 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <stdint.h>
 
-#include "fixed_point.h"
 #include "gpio.h"
 #include "spi_bus.h"
+#include "trait_max283x.h"
 
 /* 16 registers, each containing 14 bits of data. */
 #define MAX2831_NUM_REGS            16
@@ -49,6 +48,9 @@ typedef enum {
 } max2831_rx_hpf_freq_t;
 
 typedef struct _max2831_driver_t {
+	trait_max283x_t
+		trait; // TODO decide trait or trait_max283x in case we want to support multiple traits?
+
 	spi_bus_t* bus;
 	gpio_t gpio_enable;
 	gpio_t gpio_rxtx;
@@ -64,48 +66,4 @@ typedef struct _max2831_driver_t {
 	uint32_t desired_lpf_bw;
 } max2831_driver_t;
 
-/* Initialize chip. */
-extern void max2831_setup(max2831_driver_t* const drv);
-
-/* Read a register via SPI. Save a copy to memory and return
- * value. Mark clean. */
-extern uint16_t max2831_reg_read(max2831_driver_t* const drv, uint8_t r);
-
-/* Write value to register via SPI and save a copy to memory. Mark
- * clean. */
-extern void max2831_reg_write(max2831_driver_t* const drv, uint8_t r, uint16_t v);
-
-/* Write all dirty registers via SPI from memory. Mark all clean. Some
- * operations require registers to be written in a certain order. Use
- * provided routines for those operations. */
-extern void max2831_regs_commit(max2831_driver_t* const drv);
-
-max2831_mode_t max2831_mode(max2831_driver_t* const drv);
-void max2831_set_mode(max2831_driver_t* const drv, const max2831_mode_t new_mode);
-
-/* Turn on/off all chip functions. Does not control oscillator and CLKOUT */
-extern void max2831_start(max2831_driver_t* const drv);
-extern void max2831_stop(max2831_driver_t* const drv);
-
-/* Set frequency in 1/(2**24) Hz */
-extern fp_40_24_t max2831_set_frequency(
-	max2831_driver_t* const drv,
-	fp_40_24_t freq,
-	bool program);
-uint32_t max2831_set_lpf_bandwidth(
-	max2831_driver_t* const drv,
-	const max2831_mode_t mode,
-	const uint32_t bandwidth_hz);
-bool max2831_set_lna_gain(max2831_driver_t* const drv, const uint32_t gain_db);
-bool max2831_set_vga_gain(max2831_driver_t* const drv, const uint32_t gain_db);
-bool max2831_set_txvga_gain(max2831_driver_t* const drv, const uint32_t gain_db);
-
-/* Set receiver high-pass filter corner frequency in Hz */
-extern void max2831_set_rx_hpf_frequency(
-	max2831_driver_t* const drv,
-	const max2831_rx_hpf_freq_t freq);
-
-extern void max2831_tx(max2831_driver_t* const drv);
-extern void max2831_rx(max2831_driver_t* const drv);
-extern void max2831_tx_calibration(max2831_driver_t* const drv);
-extern void max2831_rx_calibration(max2831_driver_t* const drv);
+trait_max283x_t* max2831_driver_new(max2831_driver_t* const self);

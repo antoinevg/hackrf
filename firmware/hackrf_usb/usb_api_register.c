@@ -28,7 +28,8 @@
 #include <stdint.h>
 
 #include <hackrf_core.h>
-#include <max283x.h>
+#include <trait_max283x.h>
+#include <platform_board.h>
 #include <platform_detect.h>
 #include <radio.h>
 #include <si5351c.h>
@@ -48,12 +49,14 @@ usb_request_status_t usb_vendor_request_write_max283x(
 	const usb_transfer_stage_t stage)
 {
 	if (stage == USB_TRANSFER_STAGE_SETUP) {
-		uint16_t num_regs = max283x_num_regs(&max283x);
-		uint16_t data_regs_max_value = max283x_data_regs_max_value(&max283x);
+		const platform_board_t* board = platform_board();
+		uint16_t num_regs = trait_max283x_num_regs(board->dyn_max283x);
+		uint16_t data_regs_max_value =
+			trait_max283x_data_regs_max_value(board->dyn_max283x);
 		if (endpoint->setup.index < num_regs) {
 			if (endpoint->setup.value < data_regs_max_value) {
-				max283x_reg_write(
-					&max283x,
+				trait_max283x_reg_write(
+					board->dyn_max283x,
 					endpoint->setup.index,
 					endpoint->setup.value);
 				usb_transfer_schedule_ack(endpoint->in);
@@ -71,10 +74,12 @@ usb_request_status_t usb_vendor_request_read_max283x(
 	const usb_transfer_stage_t stage)
 {
 	if (stage == USB_TRANSFER_STAGE_SETUP) {
-		uint16_t num_regs = max283x_num_regs(&max283x);
+		const platform_board_t* board = platform_board();
+		uint16_t num_regs = trait_max283x_num_regs(board->dyn_max283x);
 		if (endpoint->setup.index < num_regs) {
-			const uint16_t value =
-				max283x_reg_read(&max283x, endpoint->setup.index);
+			const uint16_t value = trait_max283x_reg_read(
+				board->dyn_max283x,
+				endpoint->setup.index);
 			endpoint->buffer[0] = value & 0xff;
 			endpoint->buffer[1] = value >> 8;
 			usb_transfer_schedule_block(

@@ -24,10 +24,13 @@
 #include "rf_path.h"
 
 #include "hackrf_core.h"
-#include "max283x.h"
+#include "hackrf_ui.h"
 #include "max5864.h"
 #include "mixer.h"
+#include "platform_board.h"
 #include "platform_detect.h"
+#include "sgpio.h"
+#include "trait_max283x.h"
 #ifdef IS_NOT_JAWBREAKER
 	#include <libopencm3/lpc43xx/scu.h>
 	#include "platform_scu.h"
@@ -460,13 +463,15 @@ void rf_path_pin_setup(rf_path_t* const rf_path)
 
 void rf_path_init(rf_path_t* const rf_path)
 {
+	const platform_board_t* board = platform_board();
+
 	ssp1_set_mode_max5864();
 	max5864_setup(&max5864);
 	max5864_shutdown(&max5864);
 
 	ssp1_set_mode_max283x();
-	max283x_setup(&max283x);
-	max283x_start(&max283x);
+	trait_max283x_setup(board->dyn_max283x);
+	trait_max283x_start(board->dyn_max283x);
 
 #ifdef IS_RAD1O
 	if (IS_RAD1O) {
@@ -490,6 +495,8 @@ void rf_path_set_direction(rf_path_t* const rf_path, const rf_path_direction_t d
 	/* Turn off TX and RX amplifiers, then enable based on direction and bypass state. */
 	rf_path->switchctrl |= SWITCHCTRL_NO_TX_AMP_PWR | SWITCHCTRL_NO_RX_AMP_PWR;
 
+	const platform_board_t* board = platform_board();
+
 	switch (direction) {
 	case RF_PATH_DIRECTION_TX:
 		rf_path->switchctrl |= SWITCHCTRL_TX;
@@ -505,7 +512,7 @@ void rf_path_set_direction(rf_path_t* const rf_path, const rf_path_direction_t d
 		ssp1_set_mode_max5864();
 		max5864_tx(&max5864);
 		ssp1_set_mode_max283x();
-		max283x_tx(&max283x);
+		trait_max283x_tx(board->dyn_max283x);
 		break;
 
 	case RF_PATH_DIRECTION_RX:
@@ -522,7 +529,7 @@ void rf_path_set_direction(rf_path_t* const rf_path, const rf_path_direction_t d
 		ssp1_set_mode_max5864();
 		max5864_rx(&max5864);
 		ssp1_set_mode_max283x();
-		max283x_rx(&max283x);
+		trait_max283x_rx(board->dyn_max283x);
 		break;
 
 #ifdef IS_PRALINE
@@ -534,9 +541,9 @@ void rf_path_set_direction(rf_path_t* const rf_path, const rf_path_direction_t d
 		max5864_xcvr(&max5864);
 		ssp1_set_mode_max283x();
 		if (direction == RF_PATH_DIRECTION_TX_CALIBRATION) {
-			max283x_tx_calibration(&max283x);
+			trait_max283x_tx_calibration(board->dyn_max283x);
 		} else {
-			max283x_rx_calibration(&max283x);
+			trait_max283x_rx_calibration(board->dyn_max283x);
 		}
 		break;
 #endif
@@ -550,7 +557,7 @@ void rf_path_set_direction(rf_path_t* const rf_path, const rf_path_direction_t d
 		ssp1_set_mode_max5864();
 		max5864_standby(&max5864);
 		ssp1_set_mode_max283x();
-		max283x_set_mode(&max283x, MAX283x_MODE_STANDBY);
+		trait_max283x_set_mode(board->dyn_max283x, MAX283x_MODE_STANDBY);
 		break;
 	}
 
