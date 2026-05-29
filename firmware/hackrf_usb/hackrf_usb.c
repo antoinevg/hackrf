@@ -27,6 +27,7 @@
 
 #include <libopencm3/cm3/nvic.h>
 #include <libopencm3/lpc43xx/ipc.h>
+#include <libopencm3/usb/usbstd.h>
 
 #include <clock_gen.h>
 #include <clock_io.h>
@@ -182,6 +183,10 @@ static usb_request_handler_fn vendor_request_handler[] = {
 	usb_vendor_request_write_radio_reg,
 	usb_vendor_request_read_radio_reg,
 	usb_vendor_request_get_buffer_size,
+	usb_vendor_request_lock_radio_reg,
+	usb_vendor_request_set_radio_config_mode,
+	usb_vendor_request_set_radio_frequency_fp,
+	usb_vendor_request_set_radio_sample_rate_fp,
 };
 
 static const uint32_t vendor_request_handler_count =
@@ -192,6 +197,15 @@ usb_request_status_t usb_vendor_request(
 	const usb_transfer_stage_t stage)
 {
 	usb_request_status_t status = USB_REQUEST_STATUS_STALL;
+
+	// TODO we're probably not going to need this
+	if ((endpoint->setup.request_type & USB_REQ_TYPE_RECIPIENT) ==
+	    USB_REQ_TYPE_INTERFACE) {
+		// Radio API
+		led_on(LED4);
+	} else {
+		// legacy mode and API behavior
+	}
 
 	if (endpoint->setup.request < vendor_request_handler_count) {
 		usb_request_handler_fn handler =

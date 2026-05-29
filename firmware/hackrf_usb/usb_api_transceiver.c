@@ -45,6 +45,9 @@
 #include <usb_queue.h>
 #include <usb_request.h>
 #include <usb_type.h>
+#if defined(IS_PRALINE) && !(defined(DFU_MODE) || defined(RAM_MODE))
+	#include <fpga.h>
+#endif
 
 #include "usb_buffer.h"
 #include "usb_endpoint.h"
@@ -82,6 +85,9 @@ typedef struct {
 } set_sample_r_params_t;
 
 set_sample_r_params_t set_sample_r_params;
+
+fp_40_24_t set_radio_frequency_fp_param;
+fp_28_36_t set_radio_sample_rate_fp_param;
 
 void transceiver_dma_setup(void);
 
@@ -483,6 +489,134 @@ usb_request_status_t usb_vendor_request_get_buffer_size(
 
 		return USB_REQUEST_STATUS_OK;
 	}
+	return USB_REQUEST_STATUS_OK;
+}
+
+usb_request_status_t usb_vendor_request_set_radio_config_mode(
+	usb_endpoint_t* const endpoint,
+	const usb_transfer_stage_t stage)
+{
+	// TODO are we supporting switching between RADIO_CONFIG_LEGACY and RADIO_CONFIG_STANDARD on HackRF One?
+	// TODO do we need a legacy and standard mode?
+	if (detected_platform() != BOARD_ID_PRALINE) {
+		return USB_REQUEST_STATUS_STALL;
+	}
+
+	if (stage == USB_TRANSFER_STAGE_SETUP) {
+		radio_config_mode_t mode = endpoint->setup.value;
+		switch (mode) {
+		case RADIO_CONFIG_LEGACY:
+		case RADIO_CONFIG_STANDARD:
+		case RADIO_CONFIG_HALF_PRECISION:
+		case RADIO_CONFIG_EXT_PRECISION_RX:
+		case RADIO_CONFIG_EXT_PRECISION_TX:
+			// supported
+			break;
+		default:
+			return USB_REQUEST_STATUS_STALL;
+		}
+
+		// TODO the advantage of loading the bitstream here rather than using
+		//      hackrf_set_fpga_bitstream() is that, otherwise, libhackrf
+		//      needs to know about the flash layout on the hardware.
+		// TODO looks like we can't change bitstreams when running in DFU_MODE or RAM_MODE
+#if defined(IS_PRALINE) && !(defined(DFU_MODE) || defined(RAM_MODE))
+		// map radio_config_mode_t to fpga_bitstream_index_t
+		fpga_bitstream_index_t bitstream_index;
+		switch (mode) {
+		case RADIO_CONFIG_LEGACY:
+		case RADIO_CONFIG_STANDARD:
+			bitstream_index = FPGA_BITSTREAM_STANDARD;
+			break;
+		case RADIO_CONFIG_HALF_PRECISION:
+			bitstream_index = FPGA_BITSTREAM_HALFPREC;
+			break;
+		case RADIO_CONFIG_EXT_PRECISION_RX:
+			bitstream_index = FPGA_BITSTREAM_EXTPREC_RX;
+			break;
+		case RADIO_CONFIG_EXT_PRECISION_TX:
+			bitstream_index = FPGA_BITSTREAM_EXTPREC_TX;
+			break;
+		default:
+			return false;
+		}
+
+		// load bitstream
+		extern struct fpga_loader_t fpga_loader;
+		if (!fpga_image_load(&fpga_loader, bitstream_index)) {
+			return USB_REQUEST_STATUS_STALL;
+		}
+#else
+		return USB_REQUEST_STATUS_STALL;
+#endif
+
+		if (!radio_switch_config_mode(&radio, endpoint->setup.value)) {
+			return USB_REQUEST_STATUS_STALL;
+		}
+		usb_transfer_schedule_ack(endpoint->in);
+	}
+
+	return USB_REQUEST_STATUS_OK;
+}
+
+usb_request_status_t usb_vendor_request_set_radio_frequency_fp(
+	usb_endpoint_t* const endpoint,
+	const usb_transfer_stage_t stage)
+{
+	if (stage == USB_TRANSFER_STAGE_SETUP) {
+		usb_transfer_schedule_block(
+			endpoint->out,
+			&set_radio_frequency_fp_param,
+			sizeof(fp_40_24_t),
+			NULL,
+			NULL);
+	} else if (stage == USB_TRANSFER_STAGE_DATA) {
+		radio_reg_write(
+			&radio,
+			RADIO_BANK_ACTIVE,
+			RADIO_FREQUENCY_RF,
+			set_radio_frequency_fp_param);
+		radio_reg_write(
+			&radio,
+			RADIO_BANK_ACTIVE,
+			RADIO_FREQUENCY_IF,
+			RADIO_UNSET);
+		radio_reg_write(
+			&radio,
+			RADIO_BANK_ACTIVE,
+			RADIO_FREQUENCY_LO,
+			RADIO_UNSET);
+		radio_reg_write(
+			&radio,
+			RADIO_BANK_ACTIVE,
+			RADIO_IMAGE_REJECT,
+			RADIO_UNSET);
+		usb_transfer_schedule_ack(endpoint->in);
+	}
+
+	return USB_REQUEST_STATUS_OK;
+}
+
+usb_request_status_t usb_vendor_request_set_radio_sample_rate_fp(
+	usb_endpoint_t* const endpoint,
+	const usb_transfer_stage_t stage)
+{
+	if (stage == USB_TRANSFER_STAGE_SETUP) {
+		usb_transfer_schedule_block(
+			endpoint->out,
+			&set_radio_sample_rate_fp_param,
+			sizeof(fp_28_36_t),
+			NULL,
+			NULL);
+	} else if (stage == USB_TRANSFER_STAGE_DATA) {
+		radio_reg_write(
+			&radio,
+			RADIO_BANK_ACTIVE,
+			RADIO_SAMPLE_RATE,
+			set_radio_sample_rate_fp_param);
+		usb_transfer_schedule_ack(endpoint->in);
+	}
+
 	return USB_REQUEST_STATUS_OK;
 }
 

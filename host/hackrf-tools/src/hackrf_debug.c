@@ -545,6 +545,28 @@ int radio_write_register(
 	return result;
 }
 
+int radio_lock_register(
+	hackrf_device* device,
+	const uint16_t register_number,
+	const bool register_state)
+{
+	int result = HACKRF_SUCCESS;
+	result = hackrf_radio_lock_register(
+		device,
+		(uint8_t) register_number,
+		register_state);
+
+	if (result == HACKRF_SUCCESS) {
+		printf("register [%2d] -> %d\n", register_number, register_state);
+	} else {
+		printf("hackrf_radio_lock_register() failed: %s (%d)\n",
+		       hackrf_error_name(result),
+		       result);
+	}
+
+	return result;
+}
+
 int read_register(
 	hackrf_device* device,
 	uint8_t part,
@@ -621,6 +643,20 @@ int write_register(
 	return HACKRF_ERROR_INVALID_PARAM;
 }
 
+int lock_register(
+	hackrf_device* device,
+	uint8_t part,
+	const uint16_t register_number,
+	const bool register_state)
+{
+	switch (part) {
+	case PART_RADIO:
+		return radio_lock_register(device, register_number, register_state);
+	default:
+		return HACKRF_ERROR_INVALID_PARAM;
+	}
+}
+
 static const char* mode_name(uint32_t mode)
 {
 	const char* mode_names[] = {"IDLE", "WAIT", "RX", "TX_START", "TX_RUN"};
@@ -675,6 +711,7 @@ static void usage()
 	printf("\t-n, --register <n>: set register number for read/write operations\n");
 	printf("\t-r, --read: read register specified by last -n argument, or all registers\n");
 	printf("\t-w, --write <v>: write register specified by last -n argument with value <v>\n");
+	printf("\t-L, --lock <state>: lock register specified by last -n argument (0 for unlocked, 1 for locked)\n");
 	printf("\t-c, --config: print SI5351C multisynth configuration information\n");
 	printf("\t-d, --device <s>: specify a particular device by serial number\n");
 	printf("\t-m, --max283x: target MAX283x\n");
@@ -709,6 +746,7 @@ static struct option long_options[] = {
 	{"register", required_argument, 0, 'n'},
 	{"write", required_argument, 0, 'w'},
 	{"read", no_argument, 0, 'r'},
+	{"lock", required_argument, 0, 'L'},
 	{"device", required_argument, 0, 'd'},
 	{"help", no_argument, 0, 'h'},
 	{"max2837", no_argument, 0, 'm'},
@@ -740,10 +778,12 @@ int main(int argc, char** argv)
 	int bank = -1;
 	uint64_t register_number = REGISTER_INVALID;
 	uint64_t register_value;
+	uint64_t register_state;
 	hackrf_device* device = NULL;
 	int option_index = 0;
 	bool read = false;
 	bool write = false;
+	bool lock = false;
 	bool dump_config = false;
 	bool dump_state = false;
 	uint8_t part = PART_NONE;
@@ -782,7 +822,7 @@ int main(int argc, char** argv)
 	while ((opt = getopt_long(
 			argc,
 			argv,
-			"b:n:rw:d:cmsfgi1:2:C:N:P:ST:R:h?u:l:ta:o",
+			"b:n:rw:l:d:cmsfgi1:2:C:N:P:ST:R:h?u:l:ta:o",
 			long_options,
 			&option_index)) != EOF) {
 		switch (opt) {
@@ -803,6 +843,11 @@ int main(int argc, char** argv)
 
 		case 'r':
 			read = true;
+			break;
+
+		case 'L':
+			lock = true;
+			result = parse_int(optarg, &register_state);
 			break;
 
 		case 'c':
@@ -931,12 +976,11 @@ int main(int argc, char** argv)
 		}
 	}
 
-	if (write && read) {
-		fprintf(stderr, "Read and write options are mutually exclusive.\n");
+	if ((write && read) || (lock && write) || (lock && read)) {
+		fprintf(stderr, "Read, write and lock options are mutually exclusive.\n");
 		usage();
 		return EXIT_FAILURE;
 	}
-
 	if (write && dump_config) {
 		fprintf(stderr, "Config and write options are mutually exclusive.\n");
 		usage();
@@ -949,6 +993,10 @@ int main(int argc, char** argv)
 		return EXIT_FAILURE;
 	}
 
+	if (lock && part != PART_RADIO) {
+		fprintf(stderr, "Lock option is only valid for radio.\n");
+	}
+
 	if ((bank > -1) && (part != PART_RADIO)) {
 		fprintf(stderr, "Bank valid only for radio.\n");
 		usage();
@@ -959,11 +1007,11 @@ int main(int argc, char** argv)
 		bank = 0;
 	}
 
-	if (!(write || read || dump_config || dump_state || set_tx_limit ||
+	if (!(write || read || lock || dump_config || dump_state || set_tx_limit ||
 	      set_rx_limit || set_ui || set_leds || set_p1 || set_p2 || set_clkin ||
 	      set_narrowband || set_fpga_bitstream || read_selftest || test_rtc_osc ||
 	      read_adc)) {
-		fprintf(stderr, "Specify read, write, or config option.\n");
+		fprintf(stderr, "Specify read, write, lock, or config option.\n");
 		usage();
 		return EXIT_FAILURE;
 	}
@@ -1014,6 +1062,10 @@ int main(int argc, char** argv)
 		} else {
 			result = read_register(device, part, bank, register_number);
 		}
+	}
+
+	if (lock) {
+		result = lock_register(device, part, register_number, register_state);
 	}
 
 	if (dump_config) {

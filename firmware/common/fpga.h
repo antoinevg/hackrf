@@ -36,6 +36,13 @@ typedef enum {
 	FPGA_QUARTER_SHIFT_MODE_DOWN = 0b01,
 } fpga_quarter_shift_mode_t;
 
+typedef enum {
+	FPGA_BITSTREAM_STANDARD = 0,
+	FPGA_BITSTREAM_HALFPREC = 1,
+	FPGA_BITSTREAM_EXTPREC_RX = 2,
+	FPGA_BITSTREAM_EXTPREC_TX = 3,
+} fpga_bitstream_index_t;
+
 typedef struct {
 	ice40_spi_driver_t* bus;
 	uint8_t regs[FPGA_NUM_REGS];

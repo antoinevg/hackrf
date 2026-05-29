@@ -947,6 +947,29 @@ enum clkin_ctrl_signal {
 };
 
 /**
+ * HackRF Pro Radio Configuration Mode.
+ *
+ * Used by @ref hackrf_radio_set_config_mode, to set the active configuration mode.
+ */
+enum radio_config_mode {
+	RADIO_CONFIG_LEGACY = 0,
+	RADIO_CONFIG_STANDARD = 1,
+	RADIO_CONFIG_EXT_PRECISION_RX = 2,
+	RADIO_CONFIG_EXT_PRECISION_TX = 3,
+	RADIO_CONFIG_HALF_PRECISION = 4,
+};
+
+/**
+ * 40.24 Fixed-point type.
+ */
+typedef uint64_t fp_40_24_t;
+
+/**
+ * 28.36 Fixed-point type.
+ */
+typedef uint64_t fp_28_36_t;
+
+/**
  * Opaque struct for hackrf device info. Object can be created via @ref hackrf_open, @ref hackrf_device_list_open or @ref hackrf_open_by_serial and be destroyed via @ref hackrf_close
  * @ingroup device
  */
@@ -1747,6 +1770,18 @@ extern ADDAPI int ADDCALL hackrf_usb_api_version_read(
 	uint16_t* version);
 
 /**
+ * Set the radio configuration mode.
+ *
+ * @param[in] device device to query
+ * @param[in] mode configuration mode. Defaults to RADIO_CONFIG_LEGACY. Available modes are defined in @ref radio_config_mode.
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup configuration
+ */
+extern ADDAPI int ADDCALL hackrf_radio_set_config_mode(
+	hackrf_device* device,
+	const enum radio_config_mode mode);
+
+/**
  * Set the center frequency
  * 
  * Simple (auto) tuning via specifying a center frequency in Hz
@@ -1777,6 +1812,18 @@ extern ADDAPI int ADDCALL hackrf_set_freq_explicit(
 	const uint64_t if_freq_hz,
 	const uint64_t lo_freq_hz,
 	const enum rf_path_filter path);
+
+/**
+ * Set the radio center frequency to a fractional, fixed-point value.
+ *
+ * @param[in] device device to query
+ * @param[in] hz center frequency in Hz
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup configuration
+ */
+extern ADDAPI int ADDCALL hackrf_radio_set_frequency_fp(
+	hackrf_device* device,
+	const fp_40_24_t freq_hz);
 
 /**
  * Set sample rate explicitly
@@ -1811,6 +1858,20 @@ extern ADDAPI int ADDCALL hackrf_set_sample_rate_manual(
 extern ADDAPI int ADDCALL hackrf_set_sample_rate(
 	hackrf_device* device,
 	const double freq_hz);
+
+/**
+ * Set the radio sample rate to a fractional, fixed-point value.
+ *
+ * This function does not automatically configure the baseband filter bandwidth, so any calls to this function should be followed by @ref hackrf_set_baseband_filter_bandwidth should it require adjustment.
+ *
+ * @param[in] device device to query
+ * @param[in] sps samples per second
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup configuration
+ */
+extern ADDAPI int ADDCALL hackrf_radio_set_sample_rate_fp(
+	hackrf_device* device,
+	const fp_28_36_t freq_hz);
 
 /**
  * Enable/disable 14dB RF amplifier
@@ -2348,6 +2409,10 @@ extern ADDAPI int ADDCALL hackrf_set_narrowband_filter(
 
 /**
  * Program the selected FPGA bitstream in HackRF Pro.
+ *
+ * @param[in] device device to query
+ * @param[in] index index of the bitstream in flash
+ * @ingroup debug
  */
 extern ADDAPI int ADDCALL hackrf_set_fpga_bitstream(
 	hackrf_device* device,
@@ -2384,6 +2449,20 @@ extern ADDAPI int ADDCALL hackrf_radio_write_register(
 	const uint8_t bank,
 	const uint8_t register_number,
 	const uint64_t value);
+
+/**
+ * Lock or unlock a radio configuration register.
+ *
+ * @param[in] device device to write
+ * @param[in] register_number register number to mask
+ * @param[out] locked locked state for the register
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup debug
+ */
+extern ADDAPI int ADDCALL hackrf_radio_lock_register(
+	hackrf_device* device,
+	const uint8_t register_number,
+	const bool register_state);
 
 #ifdef __cplusplus
 } // __cplusplus defined.
